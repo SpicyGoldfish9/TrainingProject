@@ -1,0 +1,346 @@
+<style>
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px 16px;
+    text-align: center;
+  }
+  th {
+    background-color: #f2f2f2;
+  }
+  .form-section {
+    margin-bottom: 16px;
+  }
+  .empty-state {
+    margin-top: 12px;
+    color: gray;
+  }
+</style>
+
+<div id="app">
+  <h1>{{ message }}</h1>
+
+  <!-- Form for Creating Items -->
+  <div class="form-section">
+    <h3>Create Item</h3>
+    <label>Entry <input v-model="newItem.Entry" type="text" /></label>
+    <label>Amount <input v-model.number="newItem.Amount" type="number" /></label>
+    <label>Date <input v-model="newItem.Date" type="date" /></label>
+    <label>Value <input v-model.number="newItem.Value" type="number" step="0.01" /></label>
+    <button @click.prevent="createItem">Create</button>
+    <span>{{ statusMessage }}</span>
+  </div>
+
+  <!-- Filters for the IQA query -->
+  <div class="form-section">
+    <label>Entry contains <input v-model="filters.entryContains" type="text" /></label>
+    <label>Min Value <input v-model.number="filters.minValue" type="number" step="0.01" /></label>
+    <label>Min Amount <input v-model.number="filters.minAmount" type="number" /></label>
+  </div>
+
+  <button @click.prevent="loadItems">Load Items (IQA)</button>
+
+  <!-- Handles the case when there are no items in the list -->
+  <p v-if="searched && !items.length" class="empty-state">No items found.</p>
+
+  <!-- Table to Display Items -->
+  <table v-if="items.length" cellpadding="6" cellspacing="0">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Entry</th>
+        <th>Amount</th>
+        <th>Date</th>
+        <th>Value</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr v-for="item in items" :key="item.Ordinal">
+        <td>{{ item.Ordinal }}</td>
+        <td>{{ item.Entry }}</td>
+        <td><input v-model.number="item.Amount" type="number"/></td>
+        <td><input v-model="item.Date" type="date"/></td>
+        <td><input v-model.number="item.Value" type="number" step="0.01"/></td>
+        <td>
+          <button @click.prevent="updateItem(item)">Update</button>
+          <button @click.prevent="deleteItem(item.Ordinal)">Delete</button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div v-if="items.length">
+    {{ items.length }} item(s) — Total Value: {{ totalValue.toFixed(2) }}
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+<script>
+
+  const config = {
+    baseUrl: `${window.location.protocol}//${window.location.host}`,
+    partyId: JSON.parse(document.getElementById("__ClientContext").value).selectedPartyId,
+    requestVerificationToken: document.getElementById("__RequestVerificationToken").value,
+  };
+  // Defined as constant because it is used in multiple places
+  const ITEMS_QUERY = "$/JohnConsulting/Intern Exercises/Andrew Zhang/TestQuery1";
+
+  Vue.createApp({
+    data() {
+      return {
+        message: "Welcome to Andrew Zhang's CRUD App!",
+        items: [],
+        newItem: { Entry: "", Amount: 0, Date: "", Value: 0 }, // stores form data for creating new item
+        statusMessage: "", // displays status of an operation
+        filters: { entryContains: "", minValue: "", minAmount: "" }, // filters for IQA query
+        searched: false // stores whether or not the user has clicked Load Items (used for empty state message)
+      };
+    },
+    
+    computed: {
+      totalValue() {
+        let total = 0;
+        for (const item of this.items) {
+          total = total + (item.Value || 0);
+        }
+        return total;
+      }
+    },
+
+    methods: {
+      // method to load items from the IQA query with the option to filter
+      async loadItemsFromIqa(queryName, params = {}) {
+        let offset = 0;
+        let allRows = [];
+
+        // Build paramString dynamically from whatever params are passed in (generalizable)
+        let paramString = "";
+        for (const key in params) {
+          paramString += `&${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`;
+        }
+
+        while (true) {
+          const res = await fetch(
+            `${config.baseUrl}/api/query?QueryName=${encodeURIComponent(queryName)}&offset=${offset}&limit=500${paramString}`,
+            {
+              credentials: "include",
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+                "RequestVerificationToken": config.requestVerificationToken,
+                "X-TypeNameHandling": "false"
+              }
+            }
+          );
+
+          const data = await res.json();
+          const page = data.Items || [];
+          allRows = allRows.concat(page);
+
+          if (!data.HasNext) break;
+          offset = data.NextOffset;
+        }
+
+        // need to slice just the date so the date displays correctly in the table
+        for (const item of allRows) {
+          item.Date = item.Date ? item.Date.slice(0, 10) : "";
+        }
+
+        return allRows;
+      },
+
+      // function for the Load Items button
+      // takes advantage of the generalizability of the loadItemsFromIqa function
+      async loadItems() {
+        try {
+          const rows = await this.loadItemsFromIqa(ITEMS_QUERY, {
+            EntryContains: this.filters.entryContains || "",
+            MinValue: this.filters.minValue || "0",
+            MinAmount: this.filters.minAmount || "0"
+          });
+          this.items = rows;
+          this.searched = true;
+        } catch (error) {
+          this.statusMessage = "Error loading items.";
+          console.error(error);
+        }
+      },
+
+      async createItem() {
+        // Basic validation for the 4 entries of the new item
+        if (!this.newItem.Entry) {
+          this.statusMessage = "Error: Entry name is required.";
+          return;
+        }
+        if (this.newItem.Amount <= 0) {
+          this.statusMessage = "Error: Amount must be a positive number.";
+          return;
+        }
+        if (!this.newItem.Date) {
+          this.statusMessage = "Error: Date is required.";
+          return;
+        }
+        if (this.newItem.Value <= 0) {
+          this.statusMessage = "Error: Value must be a positive number.";
+          return;
+        }
+
+        // Construct the request body according to the API's expected format
+        try {
+          const res = await fetch(`${config.baseUrl}/api/Items`, {
+            credentials: "include",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "RequestVerificationToken": config.requestVerificationToken
+            },
+            body: JSON.stringify({
+              "$type": "Asi.Soa.Core.DataContracts.GenericEntityData, Asi.Contracts",
+              "EntityTypeName": "Items",
+              "PrimaryParentEntityTypeName": "Standalone",
+              "Properties": {
+                "$type": "Asi.Soa.Core.DataContracts.GenericPropertyDataCollection, Asi.Contracts",
+                "$values": [
+                  {
+                    "$type": "Asi.Soa.Core.DataContracts.GenericPropertyData, Asi.Contracts",
+                    "Name": "Entry",
+                    "Value": this.newItem.Entry
+                  },
+                  {
+                    "$type": "Asi.Soa.Core.DataContracts.GenericPropertyData, Asi.Contracts",
+                    "Name": "Amount",
+                    "Value": { "$type": "System.Int32", "$value": this.newItem.Amount }
+                  },
+                  {
+                    "$type": "Asi.Soa.Core.DataContracts.GenericPropertyData, Asi.Contracts",
+                    "Name": "Date",
+                    "Value": this.newItem.Date ? `${this.newItem.Date}T00:00:00` : "0001-01-01T00:00:00"
+                  },
+                  {
+                    "$type": "Asi.Soa.Core.DataContracts.GenericPropertyData, Asi.Contracts",
+                    "Name": "Value",
+                    "Value": { "$type": "System.Decimal", "$value": this.newItem.Value }
+                  }
+                ]
+              }
+            })
+          });
+
+          if (res.ok) {
+            this.statusMessage = "Item created successfully!";
+            this.newItem = { Entry: "", Amount: 0, Date: "", Value: 0 };
+            await this.loadItems();
+          } else {
+            this.statusMessage = "Error creating item.";
+          }
+        } catch (error) {
+          this.statusMessage = "Network error while creating item.";
+          console.error(error);
+        }
+      },
+
+      // Update Item method
+      // Need to do this way because PUT request expects a GenericEntityData shape
+      async updateItem(item) {
+        // basic validation checks
+        if (item.Amount <= 0) {
+          this.statusMessage = "Error: Amount must be a positive number.";
+          return;
+        }
+        if (!item.Date) {
+          this.statusMessage = "Error: Date is required.";
+          return;
+        }
+        if (item.Value <= 0) {
+          this.statusMessage = "Error: Value must be a positive number.";
+          return;
+        }
+
+        try {
+          // fetch the item using its ordinal (aka ID)
+          const getRes = await fetch(`${config.baseUrl}/api/Items/${item.Ordinal}`, {
+            credentials: "include",
+            method: "GET",
+            headers: {
+              "RequestVerificationToken": config.requestVerificationToken
+            }
+          });
+
+          if (!getRes.ok) {
+            this.statusMessage = "Error: could not fetch item for update.";
+            return;
+          }
+
+          const retrievedItem = await getRes.json();
+
+          // updating the three fields
+          const properties = retrievedItem.Properties.$values;
+
+          const amountProperty = properties.find(p => p.Name === "Amount");
+          amountProperty.Value = { "$type": "System.Int32", "$value": item.Amount };
+
+          const dateProperty = properties.find(p => p.Name === "Date");
+          dateProperty.Value = item.Date ? `${item.Date}T00:00:00` : "0001-01-01T00:00:00";
+
+          const valueProperty = properties.find(p => p.Name === "Value");
+          valueProperty.Value = { "$type": "System.Decimal", "$value": item.Value };
+
+          // send the updated entity back
+          const putRes = await fetch(`${config.baseUrl}/api/Items/${item.Ordinal}`, {
+            credentials: "include",
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "RequestVerificationToken": config.requestVerificationToken
+            },
+            body: JSON.stringify(retrievedItem)
+          });
+
+          if (putRes.ok) {
+            this.statusMessage = `Item ${item.Ordinal} updated successfully!`;
+            await this.loadItems();
+          } else {
+            this.statusMessage = "Error updating item.";
+          }
+        } catch (error) {
+          this.statusMessage = "Network error while updating item.";
+          console.error(error);
+        }
+      },
+
+      // method to delete an item by its ordinal/id
+      async deleteItem(ordinal) {
+        // added confirmation so we don't delete on accident
+        if (!confirm("Are you sure you want to delete this item?")) return;
+
+        try {
+          const res = await fetch(`${config.baseUrl}/api/Items/${ordinal}`, {
+            credentials: "include",
+            method: "DELETE",
+            headers: {
+              "RequestVerificationToken": config.requestVerificationToken
+            }
+          });
+
+          if (res.ok) {
+            this.statusMessage = `Item ${ordinal} deleted successfully!`;
+            await this.loadItems();
+          } else {
+            this.statusMessage = "Error deleting item.";
+          }
+        } catch (error) {
+          this.statusMessage = "Network error while deleting item.";
+          console.error(error);
+        }
+      }
+
+    }
+
+  }).mount("#app");
+</script>
