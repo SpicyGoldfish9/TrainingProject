@@ -107,7 +107,7 @@
       totalValue() {
         let total = 0;
         for (const item of this.items) {
-          total = total + (item.Value || 0);
+          total = total + item.Value;
         }
         return total;
       }
@@ -144,7 +144,7 @@
           allRows = allRows.concat(page);
 
           if (!data.HasNext) break;
-          offset = data.NextOffset;
+          offset = data.NextOffset; // update offset for next page if there is one (good for scalability)
         }
 
         // need to slice just the date so the date displays correctly in the table
@@ -220,7 +220,7 @@
                   {
                     "$type": "Asi.Soa.Core.DataContracts.GenericPropertyData, Asi.Contracts",
                     "Name": "Date",
-                    "Value": this.newItem.Date ? `${this.newItem.Date}T00:00:00` : "0001-01-01T00:00:00"
+                    "Value": { "$type": "System.DateTime", "$value":  `${this.newItem.Date}T00:00:00` }
                   },
                   {
                     "$type": "Asi.Soa.Core.DataContracts.GenericPropertyData, Asi.Contracts",
@@ -286,7 +286,7 @@
           amountProperty.Value = { "$type": "System.Int32", "$value": item.Amount };
 
           const dateProperty = properties.find(p => p.Name === "Date");
-          dateProperty.Value = item.Date ? `${item.Date}T00:00:00` : "0001-01-01T00:00:00";
+          dateProperty.Value = { "$type": "System.DateTime", "$value": `${item.Date}T00:00:00` };
 
           const valueProperty = properties.find(p => p.Name === "Value");
           valueProperty.Value = { "$type": "System.Decimal", "$value": item.Value };
