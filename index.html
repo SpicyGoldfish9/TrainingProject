@@ -149,7 +149,7 @@
 
         // need to slice just the date so the date displays correctly in the table
         for (const item of allRows) {
-          item.Date = item.Date ? item.Date.slice(0, 10) : "";
+          item.Date = item.Date.slice(0, 10);
         }
 
         return allRows;
